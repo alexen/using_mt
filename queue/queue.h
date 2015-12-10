@@ -6,6 +6,7 @@
 
 #include <deque>
 #include <initializer_list>
+#include <boost/noncopyable.hpp>
 #include <boost/optional.hpp>
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/mutex.hpp>
@@ -16,14 +17,11 @@ namespace mt {
 
 /// Очередь
 template< typename T >
-class Queue {
+class Queue : boost::noncopyable {
 public:
-     Queue()
-          : Queue( 0 ) {}
+     Queue() : Queue( 0 ) {}
 
-
-     explicit Queue( std::size_t maxLen )
-          : maxQueueLen_( maxLen ) {}
+     explicit Queue( std::size_t maxLen ) : maxQueueLen_( maxLen ) {}
 
 
      std::size_t maxLength() const
