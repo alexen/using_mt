@@ -75,7 +75,7 @@ private:
      {
           if( maxQueueLen )
           {
-               return ( maxQueueLen - currentQueueLen ) <= nElements;
+               return ( maxQueueLen - currentQueueLen ) >= nElements;
           }
 
           return currentQueueLen == 0;
