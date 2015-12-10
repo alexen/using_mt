@@ -75,11 +75,20 @@ int main()
 {
      try
      {
-          constexpr auto maxQueueLen = 0;
-          constexpr auto nConsumers = 5;
-          constexpr std::array< int, 3 > values { 555, 777, 999 };
+          constexpr auto maxQueueLen = 5;
 
-          constexpr auto nThreads = nConsumers + values.size() + 1;
+          constexpr auto nRangeProducers = 1;
+          constexpr auto nSingleProducers = 3;
+          constexpr auto nConsumers = 5;
+
+          constexpr auto nThreads = nConsumers + nRangeProducers + nSingleProducers;
+
+          std::cout << "Test started with parameters:\n"
+               << "range values producers: " << nRangeProducers << '\n'
+               << "single value producers: " << nSingleProducers << '\n'
+               << "consumers: " << nConsumers << '\n'
+               << "total threads: " << nThreads << '\n'
+               << "max queue length: " << maxQueueLen << '\n';
 
           mt::Printer< nThreads > printer( std::cout );
           mt::Queue< int > queue( maxQueueLen );
@@ -88,10 +97,13 @@ int main()
 
           int threadId = 0;
 
-          tg.create_thread( boost::bind( mt::rangeItemsProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ) ) );
+          for( auto i = 0; i < nRangeProducers; ++i )
+               tg.create_thread( boost::bind( mt::rangeItemsProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ) ) );
 
-          for( decltype( values.size() ) i = 0; i < values.size(); ++i )
-               tg.create_thread( boost::bind( mt::singleItemProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ), values[ i ] ) );
+          constexpr std::array< int, 3 > values { 555, 777, 999 };
+
+          for( auto i = 0; i < nSingleProducers; ++i )
+               tg.create_thread( boost::bind( mt::singleItemProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ), values[ i % values.size() ] ) );
 
           for( auto i = 0; i < nConsumers; ++i )
                tg.create_thread( boost::bind( mt::consumer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ) ) );
