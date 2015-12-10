@@ -20,18 +20,28 @@
 namespace mt {
 
 
+bool equal( int a, int b )
+{
+     return a == b;
+}
+
+
 template< std::size_t N >
-void singleItemProducer( unsigned id, Printer< N >& p, Queue< int >& q, int value )
+void singleItemProducer( unsigned id, Printer< N >& p, Queue< int >& q, int value, bool uniqueOnly )
 {
      int n = 10;
      while( true )
      {
-          q.push( value );
+          if( uniqueOnly )
+               q.pushUnique( value, equal );
+          else
+               q.push( value );
+
           p.print( id, boost::format( "single value %1% placed" ) % value );
 
           if( n-- == 0 )
           {
-               boost::this_thread::sleep_for( boost::chrono::milliseconds( 600 ) );
+               boost::this_thread::sleep_for( boost::chrono::milliseconds( 1000 ) );
                n = 10;
           }
      }
@@ -42,14 +52,13 @@ template< std::size_t N >
 void rangeItemsProducer( unsigned id, Printer< N >& p, Queue< int >& q )
 {
      const int chunkLen = 10;
-     int n = 0;
 
      std::array< int, chunkLen > chunk;
 
-     while( n < std::numeric_limits< int >::max() )
+     while( true )
      {
           for( int i = 0; i < chunk.size(); ++i )
-               chunk[ i ] = ++n;
+               chunk[ i ] = i + 1;
 
           q.push( std::begin( chunk ), std::end( chunk ) );
           p.print( id, boost::format( "range of %1% items placed" ) % chunkLen );
@@ -71,15 +80,17 @@ void consumer( unsigned id, Printer< N >& p, Queue< int >& q )
 } // namespace mt
 
 
-int main()
+int main( int argc, char** argv )
 {
      try
      {
-          constexpr auto maxQueueLen = 5;
+          const bool useUnique = argc > 1 ? !strcmp( argv[ 1 ], "-u" ) : false;
 
-          constexpr auto nRangeProducers = 1;
-          constexpr auto nSingleProducers = 3;
-          constexpr auto nConsumers = 5;
+          constexpr auto maxQueueLen = 10;
+
+          constexpr auto nRangeProducers = 0;
+          constexpr auto nSingleProducers = 5;
+          constexpr auto nConsumers = 3;
 
           constexpr auto nThreads = nConsumers + nRangeProducers + nSingleProducers;
 
@@ -100,10 +111,10 @@ int main()
           for( auto i = 0; i < nRangeProducers; ++i )
                tg.create_thread( boost::bind( mt::rangeItemsProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ) ) );
 
-          constexpr std::array< int, 3 > values { 555, 777, 999 };
+          const std::vector< int > values { 111, 222, 333, 444, 555, 666, 777, 888, 999 };
 
           for( auto i = 0; i < nSingleProducers; ++i )
-               tg.create_thread( boost::bind( mt::singleItemProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ), values[ i % values.size() ] ) );
+               tg.create_thread( boost::bind( mt::singleItemProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ), values[ i % values.size() ], useUnique ) );
 
           for( auto i = 0; i < nConsumers; ++i )
                tg.create_thread( boost::bind( mt::consumer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ) ) );
