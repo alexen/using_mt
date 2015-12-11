@@ -3,6 +3,7 @@
 /// @copyright Copyright (c) InfoTeCS. All Rights Reserved.
 
 #include <iostream>
+#include <numeric>
 #include <stdexcept>
 #include <tuple>
 
@@ -12,6 +13,9 @@
 #include <boost/exception/error_info.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/random_generator.hpp>
 
 #include "queue/queue.h"
 #include "printer.h"
@@ -20,59 +24,92 @@
 namespace mt {
 
 
-bool equal( int a, int b )
+struct Person {
+     enum class Type {
+          Regular,
+          Admin,
+          CEO
+     };
+
+     boost::uuids::uuid id;
+     Type type;
+
+     friend std::ostream& operator<<( std::ostream& os, const mt::Person& p )
+     {
+          static const char* const typeAsStr[] = { "REG", "ADM", "CEO" };
+          os << "person " << p.id << " is " << typeAsStr[ static_cast< int >( p.type ) ];
+          return os;
+     }
+};
+
+
+bool compareByIds( const Person& p1, const Person& p2 )
 {
-     return a == b;
+     return p1.id == p2.id;
+}
+
+
+bool compareByType( const Person& p1, const Person& p2 )
+{
+     return p1.type == p2.type;
+}
+
+
+Person generateRandomePerson()
+{
+     Person p;
+
+     p.id = boost::uuids::random_generator()();
+     p.type = Person::Type( std::accumulate( p.id.begin(), p.id.end(), 0 ) % 3 );
+
+     return p;
+}
+
+
+Person generateSamePerson()
+{
+     static auto p = generateRandomePerson();
+     return p;
 }
 
 
 template< std::size_t N >
-void singleItemProducer( unsigned id, Printer< N >& p, Queue< int >& q, int value, bool uniqueOnly )
+void singleItemProducer( unsigned id, mt::Printer< N >& p, mt::Queue< Person >& q )
 {
-     int n = 10;
      while( true )
      {
-          if( uniqueOnly )
-               q.pushUnique( value, equal );
-          else
-               q.push( value );
+          const auto person = generateRandomePerson();
+          p.print( id, boost::format( "produced %1%" ) % person );
+          q.push( std::move( person ) );
+          boost::this_thread::sleep_for( boost::chrono::milliseconds( 700 ) );
+     }
+}
 
-          p.print( id, boost::format( "single value %1% placed" ) % value );
 
-          if( n-- == 0 )
-          {
-               boost::this_thread::sleep_for( boost::chrono::milliseconds( 1000 ) );
-               n = 10;
-          }
+template< std::size_t N, std::size_t nElems >
+void rangeItemsProducer( unsigned id, mt::Printer< N >& p, mt::Queue< Person >& q )
+{
+     std::array< Person, nElems > persons;
+
+     while( true )
+     {
+          std::generate( persons.begin(), persons.end(), mt::generateSamePerson );
+          p.print( id, boost::format( "produced %1% persons" ) % persons.size() );
+          for( const auto& each: persons )
+               q.pushUnique( each, mt::compareByIds );
+          p.print( id, boost::format( "produced queue size %1%" ) % q.size() );
+          boost::this_thread::sleep_for( boost::chrono::milliseconds( 700 ) );
      }
 }
 
 
 template< std::size_t N >
-void rangeItemsProducer( unsigned id, Printer< N >& p, Queue< int >& q )
+void consumer( unsigned id, mt::Printer< N >& p, mt::Queue< Person >& q )
 {
-     const int chunkLen = 10;
-
-     std::array< int, chunkLen > chunk;
-
-     while( true )
+     while( const auto person = q.pop() )
      {
-          for( int i = 0; i < chunk.size(); ++i )
-               chunk[ i ] = i + 1;
-
-          q.push( std::begin( chunk ), std::end( chunk ) );
-          p.print( id, boost::format( "range of %1% items placed" ) % chunkLen );
-     }
-}
-
-
-template< std::size_t N >
-void consumer( unsigned id, Printer< N >& p, Queue< int >& q )
-{
-     while( const auto val = q.pop() )
-     {
-          p.print( id, boost::format( "processing number %1%" ) % *val );
-          boost::this_thread::sleep_for( boost::chrono::milliseconds( 100 ) );
+          p.print( id, boost::format( "processed %1%" ) % *person );
+          boost::this_thread::sleep_for( boost::chrono::milliseconds( 1200 ) );
      }
 }
 
@@ -80,17 +117,25 @@ void consumer( unsigned id, Printer< N >& p, Queue< int >& q )
 } // namespace mt
 
 
-int main( int argc, char** argv )
+template< typename T >
+std::ostream& operator<<( std::ostream& os, const boost::shared_ptr< T >& ptr )
+{
+     ptr ? os << *ptr : os << "--";
+     return os;
+}
+
+
+int main( /*int argc, char** argv*/ )
 {
      try
      {
-          const bool useUnique = argc > 1 ? !strcmp( argv[ 1 ], "-u" ) : false;
+//          const bool useUnique = argc > 1 ? !strcmp( argv[ 1 ], "-u" ) : false;
 
-          constexpr auto maxQueueLen = 10;
+          constexpr auto maxQueueLen = 3;
 
-          constexpr auto nRangeProducers = 0;
-          constexpr auto nSingleProducers = 5;
-          constexpr auto nConsumers = 3;
+          constexpr auto nRangeProducers = 1;
+          constexpr auto nSingleProducers = 0;
+          constexpr auto nConsumers = 0;
 
           constexpr auto nThreads = nConsumers + nRangeProducers + nSingleProducers;
 
@@ -102,22 +147,41 @@ int main( int argc, char** argv )
                << "max queue length: " << maxQueueLen << '\n';
 
           mt::Printer< nThreads > printer( std::cout );
-          mt::Queue< int > queue( maxQueueLen );
-
-          boost::thread_group tg;
+          mt::Queue< mt::Person > queue( maxQueueLen );
 
           int threadId = 0;
 
-          for( auto i = 0; i < nRangeProducers; ++i )
-               tg.create_thread( boost::bind( mt::rangeItemsProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ) ) );
-
-          const std::vector< int > values { 111, 222, 333, 444, 555, 666, 777, 888, 999 };
+          boost::thread_group tg;
 
           for( auto i = 0; i < nSingleProducers; ++i )
-               tg.create_thread( boost::bind( mt::singleItemProducer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ), values[ i % values.size() ], useUnique ) );
+               tg.create_thread(
+                    boost::bind(
+                         mt::singleItemProducer< nThreads >,
+                         ++threadId,
+                         boost::ref( printer ),
+                         boost::ref( queue )
+                    )
+               );
+
+          for( auto i = 0; i < nRangeProducers; ++i )
+               tg.create_thread(
+                    boost::bind(
+                         mt::rangeItemsProducer< nThreads, 5 >,
+                         ++threadId,
+                         boost::ref( printer ),
+                         boost::ref( queue )
+                    )
+               );
 
           for( auto i = 0; i < nConsumers; ++i )
-               tg.create_thread( boost::bind( mt::consumer< nThreads >, ++threadId, boost::ref( printer ), boost::ref( queue ) ) );
+               tg.create_thread(
+                    boost::bind(
+                         mt::consumer< nThreads >,
+                         ++threadId,
+                         boost::ref( printer ),
+                         boost::ref( queue )
+                    )
+               );
 
           tg.join_all();
      }
