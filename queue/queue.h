@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <set>
 #include <deque>
 #include <initializer_list>
 #include <boost/assert.hpp>
@@ -17,10 +18,10 @@
 namespace {
 namespace debug {
 
-template< typename T, typename Iter >
-bool isUnique( Iter begin, Iter end )
+template< typename T, typename Iter, typename Compare >
+bool isUnique( Iter begin, Iter end, Compare&& compare )
 {
-     std::set< T > uniq;
+     std::set< T, Compare > uniq( compare );
      std::copy( begin, end, std::inserter( uniq, uniq.end() ) );
      return uniq.size() == std::distance( begin, end );
 }
@@ -79,7 +80,7 @@ public:
                queue_.push_back( std::move( value ) );
                popCond_.notify_one();
           }
-          BOOST_ASSERT( debug::isUnique< T >( std::begin( queue_ ), std::end( queue_ ) ) );
+          BOOST_ASSERT( debug::isUnique< T >( std::begin( queue_ ), std::end( queue_ ), compare ) );
           BOOST_ASSERT( ( maxQueueLen_ == 0 ) || ( queue_.size() <= maxQueueLen_ ) );
      }
 
